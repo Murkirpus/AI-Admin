@@ -1,3 +1,6 @@
+### Главный интерфейс
+<img src="images/Screenshot 2025-08-08 182626.png" alt="Выбор модели" width="600">
+<img src="images/Screenshot 2025-08-06 150140.png" alt="Выбор модели" width="600">
 # AI-Admin - Beta
 При обновлении нужно удалить все таблицы в базе данных ai_admin и они создадутся снова.
 
