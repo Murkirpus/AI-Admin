@@ -2,7 +2,7 @@
 /**
  * AI Admin - Система анализа логов с искусственным интеллектом
  * Автоматическое выявление угроз и принятие решений
- * Версия: 2.0
+ * Версия: 2.1 с поддержкой множественных AI моделей
  * Поддержка: MariaDB/MySQL
  */
 
@@ -11,6 +11,9 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 ini_set('memory_limit', '256M');
 ini_set('max_execution_time', 60);
+
+// Запуск сессии для сохранения выбранной модели
+session_start();
 
 // Конфигурация базы данных MariaDB
 $db_config = [
@@ -26,7 +29,7 @@ $config = [
     'openrouter_api_key' => 'sk-or-v1-',
     'log_paths' => [
         '/var/log/nginx/access.log',
-        '/var/log/apache2/access.log',
+        //'/var/log/apache2/access.log',
         // Добавьте другие пути к логам
     ],
     'analysis_interval' => 300, // 5 минут
@@ -36,10 +39,300 @@ $config = [
         'unique_uas_threshold' => 5,
         'suspicious_patterns' => ['bot', 'crawler', 'scan', 'exploit', 'hack', 'attack']
     ],
-    'ai_model' => 'qwen/qwen-2.5-72b-instruct:free',
+    'default_ai_model' => 'qwen/qwen-2.5-72b-instruct:free',
     'block_duration' => 3600, // 1 час
     'max_log_lines' => 2000 // Максимум строк лога для анализа
 ];
+
+// Функция получения доступных AI моделей
+function getOpenRouterModels() {
+    return [
+        // 🆓 БЕСПЛАТНЫЕ МОДЕЛИ
+        'qwen/qwen-2.5-72b-instruct:free' => [
+            'name' => '🆓 Qwen 2.5 72B Instruct',
+            'description' => 'Мощная бесплатная модель от Alibaba',
+            'price' => 'БЕСПЛАТНО',
+            'cost_1000' => '$0.00',
+            'speed' => '⚡⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'free'
+        ],
+        
+        'meta-llama/llama-3.3-70b-instruct:free' => [
+            'name' => '🆓 Llama 3.3 70B Instruct',
+            'description' => 'Отличная бесплатная модель от Meta',
+            'price' => 'БЕСПЛАТНО',
+            'cost_1000' => '$0.00',
+            'speed' => '⚡⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'free'
+        ],
+        
+        'deepseek/deepseek-r1:free' => [
+            'name' => '🆓 DeepSeek R1',
+            'description' => 'Новейшая бесплатная модель с рассуждениями',
+            'price' => 'БЕСПЛАТНО',
+            'cost_1000' => '$0.00',
+            'speed' => '⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'free'
+        ],
+        
+        'mistralai/mistral-nemo:free' => [
+            'name' => '🆓 Mistral Nemo',
+            'description' => 'Быстрая и качественная бесплатная модель',
+            'price' => 'БЕСПЛАТНО',
+            'cost_1000' => '$0.00',
+            'speed' => '⚡⚡⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐',
+            'recommended' => false,
+            'category' => 'free'
+        ],
+
+        // 💰 БЮДЖЕТНЫЕ МОДЕЛИ
+        'deepseek/deepseek-chat' => [
+            'name' => '💰 DeepSeek Chat',
+            'description' => 'Отличное качество по низкой цене',
+            'price' => '$0.14 / $0.28 за 1М токенов',
+            'cost_1000' => '$0.42',
+            'speed' => '⚡⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'budget'
+        ],
+        
+        'openai/gpt-4.1-nano' => [
+            'name' => '💰 GPT-4.1 Nano',
+            'description' => 'Новейшая быстрая и дешевая модель OpenAI',
+            'price' => '$0.10 / $0.40 за 1М токенов',
+            'cost_1000' => '$0.50',
+            'speed' => '⚡⚡⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'budget'
+        ],
+        
+        'google/gemini-2.5-flash' => [
+            'name' => '💰 Gemini 2.5 Flash',
+            'description' => 'СУПЕР ПОПУЛЯРНАЯ! Топ модель по цене/качеству',
+            'price' => '$0.075 / $0.30 за 1М токенов',
+            'cost_1000' => '$0.375',
+            'speed' => '⚡⚡⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'budget'
+        ],
+        
+        'qwen/qwen-2.5-72b-instruct' => [
+            'name' => '💰 Qwen 2.5 72B Instruct',
+            'description' => 'Мощная модель по доступной цене',
+            'price' => '$0.40 / $1.20 за 1М токенов',
+            'cost_1000' => '$1.60',
+            'speed' => '⚡⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'budget'
+        ],
+        
+        'meta-llama/llama-3.3-70b-instruct' => [
+            'name' => '💰 Llama 3.3 70B Instruct',
+            'description' => 'Отличная модель от Meta, хорошая цена',
+            'price' => '$0.59 / $0.79 за 1М токенов',
+            'cost_1000' => '$1.38',
+            'speed' => '⚡⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐',
+            'recommended' => false,
+            'category' => 'budget'
+        ],
+
+        // 🥇 ПРЕМИУМ МОДЕЛИ
+        'google/gemini-2.5-pro' => [
+            'name' => '🥇 Gemini 2.5 Pro',
+            'description' => 'Топовая модель Google с отличными возможностями',
+            'price' => '$1.25 / $5.00 за 1М токенов',
+            'cost_1000' => '$6.25',
+            'speed' => '⚡⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'premium'
+        ],
+        
+        'openai/gpt-4o' => [
+            'name' => '🥇 GPT-4o',
+            'description' => 'Мультимодальная модель от OpenAI',
+            'price' => '$2.50 / $10.00 за 1М токенов',
+            'cost_1000' => '$12.50',
+            'speed' => '⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => false,
+            'category' => 'premium'
+        ],
+        
+        'openai/gpt-4o-mini' => [
+            'name' => '🥇 GPT-4o Mini',
+            'description' => 'Быстрая и качественная мини-версия',
+            'price' => '$0.15 / $0.60 за 1М токенов',
+            'cost_1000' => '$0.75',
+            'speed' => '⚡⚡⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'premium'
+        ],
+        
+        'anthropic/claude-3.5-sonnet' => [
+            'name' => '🥇 Claude 3.5 Sonnet',
+            'description' => 'Топовая модель от Anthropic для текста и кода',
+            'price' => '$3.00 / $15.00 за 1М токенов',
+            'cost_1000' => '$18.00',
+            'speed' => '⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => false,
+            'category' => 'premium'
+        ],
+        
+        'anthropic/claude-3-haiku' => [
+            'name' => '🥇 Claude 3 Haiku',
+            'description' => 'Быстрая и экономичная версия Claude',
+            'price' => '$0.25 / $1.25 за 1М токенов',
+            'cost_1000' => '$1.50',
+            'speed' => '⚡⚡⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'premium'
+        ],
+
+        // 🚀 НОВЕЙШИЕ И ПОПУЛЯРНЫЕ МОДЕЛИ
+        'anthropic/claude-3.7-sonnet' => [
+            'name' => '🚀 Claude 3.7 Sonnet',
+            'description' => 'Новейшая модель Anthropic с улучшенными возможностями',
+            'price' => '$3.00 / $15.00 за 1М токенов',
+            'cost_1000' => '$18.00',
+            'speed' => '⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'newest'
+        ],
+        
+        'anthropic/claude-sonnet-4' => [
+            'name' => '🚀 Claude Sonnet 4',
+            'description' => 'Революционная Claude 4 с мгновенными ответами',
+            'price' => '$5.00 / $25.00 за 1М токенов',
+            'cost_1000' => '$30.00',
+            'speed' => '⚡⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'newest'
+        ],
+        
+        'anthropic/claude-opus-4' => [
+            'name' => '🚀 Claude Opus 4',
+            'description' => 'Топовая модель Claude 4 с максимальными возможностями',
+            'price' => '$15.00 / $75.00 за 1М токенов',
+            'cost_1000' => '$90.00',
+            'speed' => '⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => false,
+            'category' => 'newest'
+        ],
+        
+        'x-ai/grok-3' => [
+            'name' => '🚀 Grok 3.0',
+            'description' => 'Мощная модель xAI с думающим режимом',
+            'price' => '$2.50 / $12.50 за 1М токенов',
+            'cost_1000' => '$15.00',
+            'speed' => '⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'newest'
+        ],
+        
+        'x-ai/grok-4' => [
+            'name' => '🚀 Grok 4.0',
+            'description' => 'Новейшая модель xAI с продвинутыми рассуждениями',
+            'price' => '$4.00 / $20.00 за 1М токенов',
+            'cost_1000' => '$24.00',
+            'speed' => '⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'newest'
+        ],
+        
+        'deepseek/deepseek-r1' => [
+            'name' => '🚀 DeepSeek R1',
+            'description' => 'Революционная модель с рассуждениями. Конкурент GPT-o1',
+            'price' => '$0.55 / $2.19 за 1М токенов',
+            'cost_1000' => '$2.74',
+            'speed' => '⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'newest'
+        ],
+        
+        'mistralai/mistral-large-2407' => [
+            'name' => '🚀 Mistral Large 2407',
+            'description' => 'Флагманская модель Mistral с отличным качеством',
+            'price' => '$3.00 / $9.00 за 1М токенов',
+            'cost_1000' => '$12.00',
+            'speed' => '⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => true,
+            'category' => 'newest'
+        ],
+        
+        'x-ai/grok-2-1212' => [
+            'name' => '🚀 Grok 2.0',
+            'description' => 'Модель от xAI с юмором и актуальными данными',
+            'price' => '$2.00 / $10.00 за 1М токенов',
+            'cost_1000' => '$12.00',
+            'speed' => '⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => false,
+            'category' => 'newest'
+        ],
+        
+        'openai/o1-mini' => [
+            'name' => '🚀 GPT-o1 Mini',
+            'description' => 'Модель с усиленными рассуждениями от OpenAI',
+            'price' => '$3.00 / $12.00 за 1М токенов',
+            'cost_1000' => '$15.00',
+            'speed' => '⚡⚡',
+            'quality' => '⭐⭐⭐⭐⭐',
+            'recommended' => false,
+            'category' => 'newest'
+        ],
+        
+        'cohere/command-r-plus' => [
+            'name' => '🚀 Command R+',
+            'description' => 'Мощная модель Cohere для RAG и сложных задач',
+            'price' => '$3.00 / $15.00 за 1М токенов',
+            'cost_1000' => '$18.00',
+            'speed' => '⚡⚡⚡',
+            'quality' => '⭐⭐⭐⭐',
+            'recommended' => false,
+            'category' => 'newest'
+        ]
+    ];
+}
+
+// Получение текущей выбранной модели
+function getCurrentAIModel($config) {
+    // Проверяем AJAX запрос
+    if (isset($_POST['ai_model'])) {
+        $_SESSION['selected_ai_model'] = $_POST['ai_model'];
+        return $_POST['ai_model'];
+    }
+    
+    // Проверяем сессию
+    if (isset($_SESSION['selected_ai_model'])) {
+        return $_SESSION['selected_ai_model'];
+    }
+    
+    // Возвращаем модель по умолчанию
+    return $config['default_ai_model'];
+}
 
 // Подключение к базе данных MariaDB
 try {
@@ -61,8 +354,10 @@ try {
             actions_taken TEXT,
             status ENUM('pending', 'processed', 'failed') DEFAULT 'pending',
             processing_time_ms INT,
+            ai_model VARCHAR(255),
             INDEX idx_timestamp (timestamp),
-            INDEX idx_threat_level (threat_level)
+            INDEX idx_threat_level (threat_level),
+            INDEX idx_ai_model (ai_model)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
     
@@ -102,10 +397,12 @@ try {
             ai_reasoning TEXT,
             executed_actions JSON,
             processing_time_ms INT,
+            ai_model VARCHAR(255),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (analysis_id) REFERENCES log_analysis(id) ON DELETE CASCADE,
             INDEX idx_decision_type (decision_type),
-            INDEX idx_created_at (created_at)
+            INDEX idx_created_at (created_at),
+            INDEX idx_ai_model (ai_model)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
     
@@ -117,9 +414,11 @@ try {
             blocked_requests INT DEFAULT 0,
             threats_detected INT DEFAULT 0,
             ai_processing_time_avg DECIMAL(10,2),
+            ai_model VARCHAR(255),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY unique_date_hour (date_hour),
-            INDEX idx_date_hour (date_hour)
+            UNIQUE KEY unique_date_hour_model (date_hour, ai_model),
+            INDEX idx_date_hour (date_hour),
+            INDEX idx_ai_model (ai_model)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
     
@@ -138,24 +437,25 @@ class AILogAnalyzer {
     }
     
     // Основная функция анализа логов
-    public function analyzeRecentLogs() {
+    public function analyzeRecentLogs($selectedModel = null) {
         $startTime = microtime(true);
+        $aiModel = $selectedModel ?: getCurrentAIModel($this->config);
         
         try {
             $logData = $this->parseRecentLogs();
             $analysisResult = $this->performThreatAnalysis($logData);
-            $aiDecision = $this->consultAI($analysisResult);
-            $executionResult = $this->executeDecision($analysisResult, $aiDecision);
+            $aiDecision = $this->consultAI($analysisResult, $aiModel);
+            $executionResult = $this->executeDecision($analysisResult, $aiDecision, $aiModel);
             
             $processingTime = round((microtime(true) - $startTime) * 1000);
             
             // Обновляем время обработки
-            $this->pdo->prepare("UPDATE log_analysis SET processing_time_ms = ? WHERE id = ?")
-                      ->execute([$processingTime, $executionResult['analysis_id']]);
+            $this->pdo->prepare("UPDATE log_analysis SET processing_time_ms = ?, ai_model = ? WHERE id = ?")
+                      ->execute([$processingTime, $aiModel, $executionResult['analysis_id']]);
             
-            $this->updatePerformanceStats($analysisResult, $processingTime);
+            $this->updatePerformanceStats($analysisResult, $processingTime, $aiModel);
             
-            return $executionResult;
+            return array_merge($executionResult, ['ai_model_used' => $aiModel]);
             
         } catch (Exception $e) {
             error_log("AI Admin Error: " . $e->getMessage());
@@ -465,7 +765,7 @@ class AILogAnalyzer {
     }
     
     // Консультация с ИИ
-    private function consultAI($analysisResult) {
+    private function consultAI($analysisResult, $aiModel) {
         if (empty($analysisResult['threats'])) {
             return [
                 'decision' => 'ignore',
@@ -478,7 +778,7 @@ class AILogAnalyzer {
         $prompt = $this->buildAIPrompt($analysisResult);
         
         $data = [
-            'model' => $this->config['ai_model'],
+            'model' => $aiModel,
             'messages' => [
                 [
                     'role' => 'system',
@@ -641,8 +941,8 @@ class AILogAnalyzer {
     }
     
     // Выполнение решения
-    private function executeDecision($analysisResult, $aiDecision) {
-        $analysisId = $this->saveAnalysis($analysisResult, $aiDecision);
+    private function executeDecision($analysisResult, $aiDecision, $aiModel) {
+        $analysisId = $this->saveAnalysis($analysisResult, $aiDecision, $aiModel);
         $actions = [];
         
         switch ($aiDecision['decision']) {
@@ -674,7 +974,7 @@ class AILogAnalyzer {
         }
         
         // Логируем решение ИИ
-        $this->logDecision($analysisId, $aiDecision, $actions);
+        $this->logDecision($analysisId, $aiDecision, $actions, $aiModel);
         
         // Обновляем действия в основной записи
         $this->pdo->prepare("UPDATE log_analysis SET actions_taken = ? WHERE id = ?")
@@ -690,16 +990,17 @@ class AILogAnalyzer {
     }
     
     // Сохранение анализа в БД
-    private function saveAnalysis($analysisResult, $aiDecision) {
+    private function saveAnalysis($analysisResult, $aiDecision, $aiModel) {
         $stmt = $this->pdo->prepare("
-            INSERT INTO log_analysis (analysis_data, ai_decision, threat_level, status) 
-            VALUES (?, ?, ?, 'processed')
+            INSERT INTO log_analysis (analysis_data, ai_decision, threat_level, status, ai_model) 
+            VALUES (?, ?, ?, 'processed', ?)
         ");
         
         $stmt->execute([
             json_encode($analysisResult, JSON_UNESCAPED_UNICODE),
             json_encode($aiDecision, JSON_UNESCAPED_UNICODE),
-            $analysisResult['threat_level']
+            $analysisResult['threat_level'],
+            $aiModel
         ]);
         
         return $this->pdo->lastInsertId();
@@ -764,10 +1065,10 @@ class AILogAnalyzer {
     }
     
     // Логирование решения ИИ
-    private function logDecision($analysisId, $aiDecision, $actions) {
+    private function logDecision($analysisId, $aiDecision, $actions, $aiModel) {
         $stmt = $this->pdo->prepare("
-            INSERT INTO ai_decisions_log (analysis_id, decision_type, confidence_score, ai_reasoning, executed_actions) 
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO ai_decisions_log (analysis_id, decision_type, confidence_score, ai_reasoning, executed_actions, ai_model) 
+            VALUES (?, ?, ?, ?, ?, ?)
         ");
         
         $stmt->execute([
@@ -775,23 +1076,24 @@ class AILogAnalyzer {
             $aiDecision['decision'],
             $aiDecision['confidence'],
             $aiDecision['reason'],
-            json_encode($actions, JSON_UNESCAPED_UNICODE)
+            json_encode($actions, JSON_UNESCAPED_UNICODE),
+            $aiModel
         ]);
     }
     
     // Обновление статистики производительности
-    private function updatePerformanceStats($analysisResult, $processingTime) {
+    private function updatePerformanceStats($analysisResult, $processingTime, $aiModel) {
         $currentHour = date('Y-m-d H:00:00');
         
         $stmt = $this->pdo->prepare("
-            INSERT INTO performance_stats (date_hour, threats_detected, ai_processing_time_avg) 
-            VALUES (?, ?, ?)
+            INSERT INTO performance_stats (date_hour, threats_detected, ai_processing_time_avg, ai_model) 
+            VALUES (?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE 
             threats_detected = threats_detected + VALUES(threats_detected),
             ai_processing_time_avg = (ai_processing_time_avg + VALUES(ai_processing_time_avg)) / 2
         ");
         
-        $stmt->execute([$currentHour, count($analysisResult['threats']), $processingTime]);
+        $stmt->execute([$currentHour, count($analysisResult['threats']), $processingTime, $aiModel]);
     }
     
     // Получение статистики
@@ -809,6 +1111,19 @@ class AILogAnalyzer {
         ");
         $stats['analysis'] = $stmt->fetch();
         
+        // Статистика по моделям ИИ за 24 часа
+        $stmt = $this->pdo->query("
+            SELECT ai_model, COUNT(*) as usage_count, 
+                   AVG(processing_time_ms) as avg_processing_time,
+                   AVG(threat_level) as avg_threat_level
+            FROM log_analysis 
+            WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR) 
+                  AND ai_model IS NOT NULL
+            GROUP BY ai_model 
+            ORDER BY usage_count DESC
+        ");
+        $stats['model_usage'] = $stmt->fetchAll();
+        
         // Статистика блокировок
         $stmt = $this->pdo->query("
             SELECT COUNT(*) as active_blocks,
@@ -822,10 +1137,12 @@ class AILogAnalyzer {
         
         // Решения ИИ за 24 часа
         $stmt = $this->pdo->query("
-            SELECT decision_type, COUNT(*) as count, AVG(confidence_score) as avg_confidence
+            SELECT decision_type, COUNT(*) as count, AVG(confidence_score) as avg_confidence,
+                   ai_model
             FROM ai_decisions_log 
             WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-            GROUP BY decision_type
+            GROUP BY decision_type, ai_model
+            ORDER BY count DESC
         ");
         $stats['decisions'] = $stmt->fetchAll();
         
@@ -888,13 +1205,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     try {
         switch ($_POST['action']) {
             case 'run_analysis':
-                $result = $analyzer->analyzeRecentLogs();
+                $selectedModel = $_POST['ai_model'] ?? getCurrentAIModel($config);
+                $result = $analyzer->analyzeRecentLogs($selectedModel);
                 echo json_encode(['success' => true, 'data' => $result], JSON_UNESCAPED_UNICODE);
                 break;
                 
             case 'get_stats':
                 $stats = $analyzer->getStats();
                 echo json_encode(['success' => true, 'data' => $stats], JSON_UNESCAPED_UNICODE);
+                break;
+                
+            case 'change_model':
+                $newModel = $_POST['model'] ?? $config['default_ai_model'];
+                $_SESSION['selected_ai_model'] = $newModel;
+                echo json_encode(['success' => true, 'message' => "Модель изменена на: {$newModel}"], JSON_UNESCAPED_UNICODE);
                 break;
                 
             case 'unblock_ip':
@@ -936,6 +1260,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 }
 
 // Получение данных для отображения
+$currentAiModel = getCurrentAIModel($config);
+
 $stmt = $pdo->query("
     SELECT la.*, COUNT(bl.id) as blocked_ips_count 
     FROM log_analysis la
@@ -962,13 +1288,14 @@ $stmt = $pdo->query("
 $blocked_ips = $stmt->fetchAll();
 
 $stats = $analyzer->getStats();
+$models = getOpenRouterModels();
 ?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🤖 AI Admin - Система анализа логов</title>
+    <title>🤖 AI Admin - Система анализа логов с множественными моделями</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
         * {
@@ -1021,6 +1348,7 @@ $stats = $analyzer->getStats();
             justify-content: center;
             gap: 20px;
             margin-top: 15px;
+            flex-wrap: wrap;
         }
 
         .status-item {
@@ -1035,6 +1363,86 @@ $stats = $analyzer->getStats();
 
         .status-online {
             background: rgba(40, 167, 69, 0.8);
+        }
+
+        /* AI Model Selector */
+        .ai-model-selector {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .ai-model-selector h3 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .model-controls {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+
+        .model-select-wrapper {
+            flex: 1;
+            min-width: 300px;
+        }
+
+        .model-select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            font-size: 1rem;
+            background: white;
+            color: #2c3e50;
+            transition: all 0.3s ease;
+        }
+
+        .model-select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .model-info {
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 12px;
+            background: linear-gradient(145deg, #f8f9fa, #e9ecef);
+            border-left: 5px solid;
+        }
+
+        .model-info.free { border-color: #17a2b8; }
+        .model-info.budget { border-color: #ffc107; }
+        .model-info.premium { border-color: #dc3545; }
+        .model-info.newest { border-color: #28a745; }
+
+        .model-stats {
+            display: flex;
+            gap: 15px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .model-stat {
+            background: rgba(102, 126, 234, 0.1);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: #667eea;
+            border: 1px solid rgba(102, 126, 234, 0.2);
         }
 
         .dashboard {
@@ -1251,6 +1659,16 @@ $stats = $analyzer->getStats();
             background: linear-gradient(135deg, #e8f5e8, #c8e6c9); 
             color: #2e7d32; 
             border: 2px solid #27ae60;
+        }
+
+        .ai-model-badge {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            margin-left: 8px;
         }
 
         .log-entry {
@@ -1470,6 +1888,23 @@ $stats = $analyzer->getStats();
                 grid-template-columns: 1fr;
                 gap: 20px;
             }
+
+            .ai-model-selector {
+                padding: 20px;
+            }
+
+            .model-controls {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .model-select-wrapper {
+                min-width: 100%;
+            }
+
+            .model-stats {
+                justify-content: center;
+            }
             
             .stats-grid {
                 grid-template-columns: repeat(2, 1fr);
@@ -1533,6 +1968,15 @@ $stats = $analyzer->getStats();
             .card h3 {
                 font-size: 1.2rem;
             }
+
+            .ai-model-selector {
+                padding: 15px;
+            }
+
+            .model-select {
+                font-size: 0.9rem;
+                padding: 10px 12px;
+            }
         }
 
         /* Анимации */
@@ -1547,7 +1991,7 @@ $stats = $analyzer->getStats();
             }
         }
 
-        .card {
+        .card, .ai-model-selector {
             animation: fadeInUp 0.6s ease-out forwards;
         }
 
@@ -1592,7 +2036,7 @@ $stats = $analyzer->getStats();
     <div class="container">
         <div class="header">
             <h1><i class="fas fa-robot"></i> AI Admin</h1>
-            <p>Система автоматического анализа логов с искусственным интеллектом</p>
+            <p>Система автоматического анализа логов с множественными AI моделями</p>
             <div class="system-status">
                 <div class="status-item status-online">
                     <i class="fas fa-check-circle"></i>
@@ -1600,12 +2044,108 @@ $stats = $analyzer->getStats();
                 </div>
                 <div class="status-item status-online">
                     <i class="fas fa-brain"></i>
-                    ИИ модель: <?php echo $config['ai_model']; ?>
+                    Активная модель: <?php echo $models[$currentAiModel]['name'] ?? 'Неизвестная'; ?>
                 </div>
                 <div class="status-item">
                     <i class="fas fa-clock"></i>
                     Анализ каждые <?php echo $config['analysis_interval']/60; ?> мин
                 </div>
+                <div class="status-item">
+                    <i class="fas fa-layer-group"></i>
+                    <?php echo count($models); ?> доступных моделей
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Model Selector -->
+        <div class="ai-model-selector">
+            <h3><i class="fas fa-brain"></i> Выбор AI модели</h3>
+            <div class="model-controls">
+                <div class="model-select-wrapper">
+                    <select class="model-select" id="aiModelSelect" onchange="changeAIModel()">
+                        <?php 
+                        $categoryNames = [
+                            'free' => '🆓 БЕСПЛАТНЫЕ',
+                            'budget' => '💰 БЮДЖЕТНЫЕ',
+                            'premium' => '🥇 ПРЕМИУМ',
+                            'newest' => '🚀 НОВЕЙШИЕ'
+                        ];
+                        
+                        $categorizedModels = [];
+                        foreach ($models as $key => $model) {
+                            $categorizedModels[$model['category']][$key] = $model;
+                        }
+                        
+                        foreach ($categoryNames as $category => $categoryName) {
+                            if (isset($categorizedModels[$category])) {
+                                echo '<optgroup label="' . $categoryName . '">';
+                                foreach ($categorizedModels[$category] as $key => $model) {
+                                    $selected = $key === $currentAiModel ? 'selected' : '';
+                                    echo '<option value="' . $key . '" ' . $selected . '>';
+                                    echo $model['name'];
+                                    if ($model['recommended']) echo ' ⭐';
+                                    echo '</option>';
+                                }
+                                echo '</optgroup>';
+                            }
+                        }
+                        ?>
+                    </select>
+                    
+                    <div class="model-info <?php echo $models[$currentAiModel]['category'] ?? 'info'; ?>" id="modelInfo">
+                        <div>
+                            <strong><?php echo $models[$currentAiModel]['name'] ?? 'Неизвестная модель'; ?></strong>
+                            <?php if (($models[$currentAiModel]['recommended'] ?? false)): ?>
+                                <span style="color: #f39c12; margin-left: 8px;"><i class="fas fa-star"></i> Рекомендуется</span>
+                            <?php endif; ?>
+                        </div>
+                        <div style="margin: 8px 0; color: #6c757d;">
+                            <?php echo $models[$currentAiModel]['description'] ?? ''; ?>
+                        </div>
+                        <div class="model-stats">
+                            <div class="model-stat">
+							💰 <?php echo $models[$currentAiModel]['price'] ?? 'N/A'; ?>
+                            </div>
+                            <div class="model-stat">
+                                ⚡ <?php echo $models[$currentAiModel]['speed'] ?? '⚡⚡⚡'; ?>
+                            </div>
+                            <div class="model-stat">
+                                ⭐ <?php echo $models[$currentAiModel]['quality'] ?? '⭐⭐⭐'; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <?php if (!empty($stats['model_usage'])): ?>
+                <div style="min-width: 200px;">
+                    <h4 style="color: #2c3e50; margin-bottom: 10px;">📊 Статистика моделей (24ч)</h4>
+                    <div class="table-container" style="max-height: 200px;">
+                        <table class="table" style="font-size: 0.8rem;">
+                            <thead>
+                                <tr>
+                                    <th>Модель</th>
+                                    <th>Использований</th>
+                                    <th>Ср. время</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach (array_slice($stats['model_usage'], 0, 5) as $usage): ?>
+                                <tr>
+                                    <td>
+                                        <?php 
+                                        $modelName = $models[$usage['ai_model']]['name'] ?? 'Неизвестная';
+                                        echo substr($modelName, 0, 20) . (strlen($modelName) > 20 ? '...' : '');
+                                        ?>
+                                    </td>
+                                    <td><?php echo $usage['usage_count']; ?></td>
+                                    <td><?php echo round($usage['avg_processing_time']); ?>мс</td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -1681,7 +2221,10 @@ $stats = $analyzer->getStats();
                     $totalConfidence = ['block' => 0, 'monitor' => 0, 'ignore' => 0];
                     
                     foreach ($stats['decisions'] as $decision) {
-                        $decisionCounts[$decision['decision_type']] = $decision['count'];
+                        if (!isset($decisionCounts[$decision['decision_type']])) {
+                            $decisionCounts[$decision['decision_type']] = 0;
+                        }
+                        $decisionCounts[$decision['decision_type']] += $decision['count'];
                         $totalConfidence[$decision['decision_type']] = $decision['avg_confidence'];
                     }
                     ?>
@@ -1699,6 +2242,23 @@ $stats = $analyzer->getStats();
                         <div class="stat-label">Ignore</div>
                     </div>
                 </div>
+                
+                <?php if (!empty($stats['model_usage'])): ?>
+                <div style="margin-top: 15px;">
+                    <h4 style="color: #2c3e50; font-size: 1rem; margin-bottom: 10px;">Использование моделей:</h4>
+                    <?php foreach (array_slice($stats['model_usage'], 0, 3) as $usage): ?>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid #e9ecef;">
+                            <span style="font-size: 0.8rem; color: #6c757d;">
+                                <?php 
+                                $modelName = $models[$usage['ai_model']]['name'] ?? 'Неизвестная';
+                                echo substr($modelName, 0, 25) . (strlen($modelName) > 25 ? '...' : '');
+                                ?>
+                            </span>
+                            <span class="badge info"><?php echo $usage['usage_count']; ?></span>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
             </div>
 
             <!-- Топ угроз -->
@@ -1778,6 +2338,11 @@ $stats = $analyzer->getStats();
                                             <?php echo $analysis['processing_time_ms']; ?>мс
                                         </span>
                                     <?php endif; ?>
+                                    <?php if (!empty($analysis['ai_model'])): ?>
+                                        <span class="ai-model-badge">
+                                            <?php echo $models[$analysis['ai_model']]['name'] ?? $analysis['ai_model']; ?>
+                                        </span>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                             <div style="text-align: right;">
@@ -1835,7 +2400,7 @@ $stats = $analyzer->getStats();
                             <div style="margin-top: 10px;">
                                 <?php foreach (array_slice($data['threats'], 0, 5) as $i => $threat): ?>
                                 <div style="background: rgba(231, 76, 60, 0.1); padding: 12px; margin: 8px 0; border-radius: 8px; border-left: 4px solid #e74c3c;">
-                                    <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 8px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                                         <strong><code class="ip-address"><?php echo $threat['ip']; ?></code></strong>
                                         <span class="threat-score 
                                             <?php 
@@ -1984,6 +2549,7 @@ $stats = $analyzer->getStats();
         // Глобальные переменные
         let isAnalyzing = false;
         let autoRefreshInterval = null;
+        const models = <?php echo json_encode($models); ?>;
 
         // Функции уведомлений
         function showAlert(message, type = 'success', duration = 5000) {
@@ -2018,6 +2584,60 @@ $stats = $analyzer->getStats();
             }, duration);
         }
 
+        // Изменение AI модели
+        async function changeAIModel() {
+            const select = document.getElementById('aiModelSelect');
+            const selectedModel = select.value;
+            
+            try {
+                const response = await fetch('', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `action=change_model&model=${encodeURIComponent(selectedModel)}`
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateModelInfo(selectedModel);
+                    showAlert(`🤖 Модель изменена на: ${models[selectedModel].name}`, 'success');
+                } else {
+                    showAlert(`❌ Ошибка смены модели: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showAlert(`❌ Ошибка сети: ${error.message}`, 'error');
+            }
+        }
+
+        // Обновление информации о модели
+        function updateModelInfo(modelKey) {
+            const model = models[modelKey];
+            if (!model) return;
+            
+            const modelInfo = document.getElementById('modelInfo');
+            modelInfo.className = `model-info ${model.category}`;
+            
+            const recommended = model.recommended ? 
+                '<span style="color: #f39c12; margin-left: 8px;"><i class="fas fa-star"></i> Рекомендуется</span>' : '';
+            
+            modelInfo.innerHTML = `
+                <div>
+                    <strong>${model.name}</strong>
+                    ${recommended}
+                </div>
+                <div style="margin: 8px 0; color: #6c757d;">
+                    ${model.description}
+                </div>
+                <div class="model-stats">
+                    <div class="model-stat">💰 ${model.price}</div>
+                    <div class="model-stat">⚡ ${model.speed}</div>
+                    <div class="model-stat">⭐ ${model.quality}</div>
+                </div>
+            `;
+        }
+
         // Запуск анализа
         async function runAnalysis() {
             if (isAnalyzing) return;
@@ -2028,13 +2648,15 @@ $stats = $analyzer->getStats();
             btn.innerHTML = '<div class="loading"></div> Анализирую логи...';
             btn.disabled = true;
 
+            const selectedModel = document.getElementById('aiModelSelect').value;
+
             try {
                 const response = await fetch('', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
                     },
-                    body: 'action=run_analysis'
+                    body: `action=run_analysis&ai_model=${encodeURIComponent(selectedModel)}`
                 });
 
                 const data = await response.json();
@@ -2042,6 +2664,8 @@ $stats = $analyzer->getStats();
                 if (data.success) {
                     const result = data.data;
                     const decision = result.ai_decision;
+                    const modelUsed = result.ai_model_used || selectedModel;
+                    const modelName = models[modelUsed]?.name || modelUsed;
                     
                     let alertType = 'success';
                     let icon = '✅';
@@ -2054,7 +2678,8 @@ $stats = $analyzer->getStats();
                         icon = '👁️';
                     }
                     
-                    showAlert(`${icon} Анализ завершен! ИИ принял решение: <strong>${decision.decision.toUpperCase()}</strong> (точность: ${decision.confidence}%)<br>
+                    showAlert(`${icon} Анализ завершен с моделью <strong>${modelName}</strong>!<br>
+                              ИИ принял решение: <strong>${decision.decision.toUpperCase()}</strong> (точность: ${decision.confidence}%)<br>
                               Найдено угроз: ${result.threat_count}, Обработано действий: ${result.actions_taken.length}`, alertType, 8000);
                     
                     // Обновляем страницу через 2 секунды
@@ -2154,6 +2779,7 @@ $stats = $analyzer->getStats();
                     const analysis = data.data;
                     const analysisData = analysis.analysis_data;
                     const aiDecision = analysis.ai_decision;
+                    const aiModel = models[analysis.ai_model] || { name: analysis.ai_model || 'Неизвестная' };
                     
                     let html = `
                         <div style="margin-bottom: 25px;">
@@ -2175,6 +2801,11 @@ $stats = $analyzer->getStats();
                                     <div class="stat-number">${analysis.processing_time_ms || 0}мс</div>
                                     <div class="stat-label">Время обработки</div>
                                 </div>
+                            </div>
+                            <div style="margin-top: 15px; text-align: center;">
+                                <span class="ai-model-badge" style="font-size: 0.9rem; padding: 8px 16px;">
+                                    <i class="fas fa-brain"></i> Использована модель: ${aiModel.name}
+                                </span>
                             </div>
                         </div>
                         
@@ -2280,11 +2911,18 @@ $stats = $analyzer->getStats();
 
         // Показать информацию о системе
         function showSystemInfo() {
+            const currentModel = document.getElementById('aiModelSelect').value;
+            const modelInfo = models[currentModel];
+            
             const info = `
-                🤖 AI Admin Security System
+                🤖 AI Admin Security System v2.1
                 
                 📊 Конфигурация:
-                • Модель ИИ: <?php echo $config['ai_model']; ?>
+                • Активная модель: ${modelInfo.name}
+                • Категория: ${modelInfo.category.toUpperCase()}
+                • Стоимость: ${modelInfo.price}
+                • Скорость: ${modelInfo.speed}
+                • Качество: ${modelInfo.quality}
                 • Интервал анализа: <?php echo $config['analysis_interval']/60; ?> минут
                 • Максимум строк лога: <?php echo number_format($config['max_log_lines']); ?>
                 • Порог запросов/мин: <?php echo $config['threat_threshold']['requests_per_minute']; ?>
@@ -2298,6 +2936,12 @@ $stats = $analyzer->getStats();
                 • iptables (системный уровень)
                 • .htaccess (веб-сервер)  
                 • База данных (учет)
+                
+                🤖 Доступно AI моделей: <?php echo count($models); ?>
+                • Бесплатных: <?php echo count(array_filter($models, fn($m) => $m['category'] === 'free')); ?>
+                • Бюджетных: <?php echo count(array_filter($models, fn($m) => $m['category'] === 'budget')); ?>
+                • Премиум: <?php echo count(array_filter($models, fn($m) => $m['category'] === 'premium')); ?>
+                • Новейших: <?php echo count(array_filter($models, fn($m) => $m['category'] === 'newest')); ?>
                 
                 ⚙️ База данных:
                 • Хост: <?php echo $db_config['host']; ?>
@@ -2386,6 +3030,10 @@ $stats = $analyzer->getStats();
                         e.preventDefault();
                         showSystemInfo();
                         break;
+                    case 'm': // Ctrl+M - смена модели (фокус на селект)
+                        e.preventDefault();
+                        document.getElementById('aiModelSelect').focus();
+                        break;
                 }
             }
             
@@ -2406,7 +3054,9 @@ $stats = $analyzer->getStats();
         document.addEventListener('DOMContentLoaded', function() {
             // Показываем приветствие
             setTimeout(() => {
-                showAlert('🤖 AI Admin система готова к работе! Используйте Ctrl+R для быстрого анализа', 'info', 5000);
+                const currentModel = models[document.getElementById('aiModelSelect').value];
+                showAlert(`🤖 AI Admin система готова к работе с моделью <strong>${currentModel.name}</strong>!<br>
+                          Используйте Ctrl+R для быстрого анализа, Ctrl+M для смены модели`, 'info', 6000);
             }, 1000);
             
             // Запускаем автообновление
@@ -2426,6 +3076,11 @@ $stats = $analyzer->getStats();
                 else if (label?.includes('заблокировано')) el.setAttribute('data-stat', 'active_blocks');
                 else if (label?.includes('за час')) el.setAttribute('data-stat', 'recent_blocks');
             });
+
+            // Устанавливаем обработчик на селект модели для обновления информации при изменении
+            document.getElementById('aiModelSelect').addEventListener('change', function() {
+                updateModelInfo(this.value);
+            });
         });
 
         // Проверка доступности ИИ
@@ -2436,18 +3091,21 @@ $stats = $analyzer->getStats();
                 return;
             }
             
-            // Можно добавить проверку доступности API
-            console.log('AI system ready with model:', '<?php echo $config['ai_model']; ?>');
+            const currentModel = document.getElementById('aiModelSelect').value;
+            console.log('AI system ready with model:', currentModel);
         }
 
         // Функция для экспорта статистики
         function exportStatistics() {
+            const currentModel = document.getElementById('aiModelSelect').value;
             const data = {
                 export_date: new Date().toISOString(),
                 system_info: {
-                    ai_model: '<?php echo $config['ai_model']; ?>',
+                    current_ai_model: currentModel,
+                    ai_model_name: models[currentModel].name,
                     analysis_interval: <?php echo $config['analysis_interval']; ?>,
-                    threat_thresholds: <?php echo json_encode($config['threat_threshold']); ?>
+                    threat_thresholds: <?php echo json_encode($config['threat_threshold']); ?>,
+                    available_models: Object.keys(models).length
                 },
                 statistics: <?php echo json_encode($stats); ?>
             };
@@ -2456,7 +3114,7 @@ $stats = $analyzer->getStats();
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `ai-admin-stats-${new Date().toISOString().slice(0, 10)}.json`;
+            a.download = `ai-admin-stats-${currentModel.replace(/[^a-zA-Z0-9]/g, '_')}-${new Date().toISOString().slice(0, 10)}.json`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -2477,34 +3135,6 @@ $stats = $analyzer->getStats();
             showAlert('❌ Ошибка сетевого запроса. Проверьте подключение.', 'error');
         });
 
-        // Функция для ручной блокировки IP
-        function blockCustomIP() {
-            const ip = prompt('Введите IP адрес для блокировки:');
-            if (!ip) return;
-            
-            const reason = prompt('Укажите причину блокировки:');
-            if (!reason) return;
-            
-            // Здесь можно добавить AJAX запрос для ручной блокировки
-            showAlert(`🚫 IP ${ip} добавлен в список для блокировки`, 'info');
-        }
-
-        // Показ/скрытие расширенной статистики
-        function toggleAdvancedStats() {
-            const advanced = document.querySelectorAll('.advanced-stats');
-            const button = event.target;
-            
-            advanced.forEach(el => {
-                if (el.style.display === 'none') {
-                    el.style.display = 'block';
-                    button.textContent = 'Скрыть детали';
-                } else {
-                    el.style.display = 'none';
-                    button.textContent = 'Показать детали';
-                }
-            });
-        }
-
         // Копирование IP в буфер обмена
         async function copyToClipboard(text) {
             try {
@@ -2522,6 +3152,35 @@ $stats = $analyzer->getStats();
                 copyToClipboard(e.target.textContent);
             }
         });
+
+        // Функция быстрой смены моделей горячими клавишами
+        document.addEventListener('keydown', function(e) {
+            if (e.altKey) {
+                switch(e.key) {
+                    case '1': // Alt+1 - первая бесплатная модель
+                        e.preventDefault();
+                        setModelAndAnalyze('qwen/qwen-2.5-72b-instruct:free');
+                        break;
+                    case '2': // Alt+2 - быстрая бюджетная модель
+                        e.preventDefault();
+                        setModelAndAnalyze('google/gemini-2.5-flash');
+                        break;
+                    case '3': // Alt+3 - мощная новейшая модель
+                        e.preventDefault();
+                        setModelAndAnalyze('deepseek/deepseek-r1');
+                        break;
+                }
+            }
+        });
+
+        // Установка модели и запуск анализа
+        async function setModelAndAnalyze(modelKey) {
+            if (isAnalyzing) return;
+            
+            document.getElementById('aiModelSelect').value = modelKey;
+            await changeAIModel();
+            setTimeout(() => runAnalysis(), 500);
+        }
     </script>
 </body>
 </html>
